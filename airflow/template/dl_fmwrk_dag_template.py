@@ -19,17 +19,19 @@ def initializer(**kwargs):
     task_instance.xcom_push(key="src_path", value=src_path)
 
 schedule = "schedule_placeholder"
+yesterday = datetime.combine(datetime.today(), datetime.min.time())
 default_args = {
     'retries': 1,
-    'retry_delay': timedelta(minutes=1)
+    'retry_delay': timedelta(minutes=1),
+    'start_date' : yesterday
 }
 
 dag =  DAG(
     dag_id = "dag_id_placeholder",
     default_args = default_args,
-    start_date = datetime(2022, 1, 1),
     schedule_interval=schedule,    
-    catchup=False
+    catchup=False,
+    is_paused_upon_creation=False
 )
 
 t1 = PythonOperator(
