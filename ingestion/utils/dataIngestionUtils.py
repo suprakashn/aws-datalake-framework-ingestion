@@ -181,7 +181,7 @@ class IngestionAttr:
             "src_sys_id": int(self.src_sys_id),
             "asset_id": int(self.asset_id),
             "dq_validation": "not started",
-            "data_standardization": "not started",
+            "data_publish": "not started",
             "data_masking": "not started",
             "src_file_path": self.source_path,
             "s3_log_path": f"s3://{self.bucket_name}/{self.asset_id}/logs/{self.exec_id}/",
