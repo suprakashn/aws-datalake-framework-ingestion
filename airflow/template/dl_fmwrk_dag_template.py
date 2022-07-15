@@ -89,8 +89,8 @@ t4 = AwsGlueJobOperator(
     )
 
 t5 = AwsGlueJobOperator(
-    task_id = "data_standardization",
-    job_name = "dl-fmwrk-data-standardization",
+    task_id = "data_publish",
+    job_name = "dl-fmwrk-data-publish",
     region_name = "us-east-2",
     script_location = "s3://dl-fmwrk-code-us-east-2/aws-datalake-framework/src/",
     num_of_dpus = 1,
