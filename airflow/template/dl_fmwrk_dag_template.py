@@ -47,6 +47,7 @@ t2 = AwsGlueJobOperator(
     task_id = "data_ingestion",
     job_name = "dl-fmwrk-data-ingestion",
     region_name = "us-east-2",
+    script_location = "s3://dl-fmwrk-code-us-east-2/aws-datalake-framework-ingestion/ingestion/",
     num_of_dpus = 1,
     script_args = {
         "--source_id" : "{{ task_instance.xcom_pull(task_ids='start', key='src_sys_id')}}",
@@ -61,6 +62,7 @@ t3 = AwsGlueJobOperator(
     task_id = "quality_check",
     job_name = "dl-fmwrk-data-quality-checks",
     region_name = "us-east-2",
+    script_location = "s3://dl-fmwrk-code-us-east-2/aws-datalake-framework/src/",
     num_of_dpus = 1,
     script_args = {
         "--source_id" : "{{ task_instance.xcom_pull(task_ids='start', key='src_sys_id')}}",
@@ -75,6 +77,7 @@ t4 = AwsGlueJobOperator(
     task_id = "data_masking",
     job_name = "dl-fmwrk-data-masking",
     region_name = "us-east-2",
+    script_location = "s3://dl-fmwrk-code-us-east-2/aws-datalake-framework/src/",
     num_of_dpus = 1,
     script_args = {
         "--source_id" : "{{ task_instance.xcom_pull(task_ids='start', key='src_sys_id')}}",
@@ -89,6 +92,7 @@ t5 = AwsGlueJobOperator(
     task_id = "data_standardization",
     job_name = "dl-fmwrk-data-standardization",
     region_name = "us-east-2",
+    script_location = "s3://dl-fmwrk-code-us-east-2/aws-datalake-framework/src/",
     num_of_dpus = 1,
     script_args = {
         "--source_id" : "{{ task_instance.xcom_pull(task_ids='start', key='src_sys_id')}}",
