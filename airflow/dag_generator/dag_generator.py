@@ -7,7 +7,7 @@ def lambda_handler(event, context):
   source_id=event['source_id']
   asset_id=event['asset_id']
   schedule=event['schedule']
-  template_object_key = "airflow-template/dl_fmwrk_dag_template.py"
+  template_object_key = "aws-datalake-framework-ingestion/airflow/template/dl_fmwrk_dag_template.py"
   dag_id = f"{source_id}_{asset_id}_worflow"
   file_name= f"/mnt/dags/{source_id}_{asset_id}_worflow.py"
   
