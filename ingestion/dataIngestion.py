@@ -1,6 +1,9 @@
 import sys
+import json
 from awsglue.utils import getResolvedOptions
 from utils.dataIngestionUtils import *
+from connector.pg_connect import Connector
+
 
 def get_global_config():
     """
@@ -26,6 +29,9 @@ try:
     if ing_db.ing_pattern == "file":
         ing_db.copy_file_between_buckets()
         ing_db.move_file_within_bucket()
+    if ing_db.ing_pattern == "stream":
+        ing_db.merge_and_copy_streaming_file_to_raw()
+        ing_db.move_streaming_file_to_processed()
     conn.close()
 except Exception as e:
     logger.write(message=str(e))
