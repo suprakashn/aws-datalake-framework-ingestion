@@ -181,7 +181,7 @@ class IngestionAttr:
             "src_sys_id": int(self.src_sys_id),
             "asset_id": int(self.asset_id),
             "dq_validation": "not started",
-            "data_standardization": "not started",
+            "data_publish": "not started",
             "data_masking": "not started",
             "src_file_path": self.source_path,
             "s3_log_path": f"s3://{self.bucket_name}/{self.asset_id}/logs/{self.exec_id}/",
@@ -189,3 +189,39 @@ class IngestionAttr:
             "created_ts": created_ts,
         }
         self.conn.insert(table="data_asset_catalogs", data=insert_data)
+
+    def merge_and_copy_streaming_file_to_raw(self):
+        s3 = boto3.resource('s3')
+        ing_bucket = f'{self.fm_prefix}-time-drvn-inbound-{self.ingestion_region}'
+        bucket = s3.Bucket(ing_bucket)
+        try:
+            file_str = str()
+            for obj in bucket.objects.filter(Prefix=f'init/{self.src_sys_id}/{self.asset_id}/'):
+                body = obj.get()['Body'].read()
+                output = str(body, 'UTF-8')
+                file_str = file_str + output
+            data_str = "[{}]".format(file_str.replace("}{", "},{"))
+            data_bytes = bytes(data_str, 'utf-8')
+            output_obj = s3.Object(f'{self.fm_prefix}-{self.src_sys_id}-{self.ingestion_region}', f'{self.asset_id}/init/{self.timestamp}/streaming_file.json')
+            output_obj.put(Body=data_bytes)
+            for obj in bucket.objects.filter(Prefix=f'init/{self.src_sys_id}/{self.asset_id}/'):
+                s3.Object(obj.bucket_name, obj.key).delete()
+        except Exception as e:
+            logger.write(message=str(e))
+
+    def move_streaming_file_to_processed(self):
+        s3 = boto3.resource('s3')
+        ing_source_bucket = f'{self.fm_prefix}-{self.src_sys_id}-{self.ingestion_region}'
+        ing_bucket = f'{self.fm_prefix}-time-drvn-inbound-{self.ingestion_region}'
+        src_bucket_obj = s3.Bucket(ing_source_bucket)
+        dest_bucket_obj = s3.Bucket(ing_bucket)
+        try:
+            for obj in src_bucket_obj.objects.filter(Prefix=f"{self.asset_id}/init/{self.timestamp}/"):
+                copy_source = {
+                    'Bucket': ing_source_bucket,
+                    'Key': obj.key
+                }
+                file_name = obj.key.split("/")[3]
+                dest_bucket_obj.copy(copy_source, f"processed/{self.src_sys_id}/{self.asset_id}/{file_name}")
+        except Exception as e:
+            logger.write(message=str(e))
