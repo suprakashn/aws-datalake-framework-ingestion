@@ -1,11 +1,12 @@
 import base64
-from pyspark import sql
+import json
+import time
+from datetime import datetime
 import boto3
 from botocore.exceptions import ClientError
-from datetime import datetime
-from utils.logger import Logger
+from pyspark import sql
 from connector.pg_connect import *
-
+from utils.logger import Logger
 
 logger = Logger()
 
@@ -33,10 +34,14 @@ class IngestionAttr:
             self.table_name = asset_attr["src_table_name"]
             self.query = asset_attr["src_sql_query"]
             self.trigger_mechanism = asset_attr["trigger_mechanism"]
+            self.ext_method = asset_attr["ext_method"]
+            self.ext_col = asset_attr["ext_col"]
             self.password = self.get_secret() if self.ing_pattern == "database" else None
             self.timestamp = self.source_path.split("/")[5]
             self.driver = None
             self.url = None
+            self.max_value_in_catalog = None
+            self.max_value_in_table = None
         except Exception as e:
             logger.write(message=str(e))
 
@@ -54,6 +59,13 @@ class IngestionAttr:
                                                    where=("asset_id=%s", [self.asset_id]))
         print(data_asset_table_data[0])
         return data_asset_table_data[0]
+
+    def get_data_catalog_attributes(self):
+        data_asset_catalog_table = "data_asset_catalogs"
+        data_asset_catalog_table_data = self.conn.retrieve_dict(table=data_asset_catalog_table, cols="all",
+                                                                where=("asset_id=%s", [self.asset_id]))
+        print(data_asset_catalog_table_data[0])
+        return data_asset_catalog_table_data[0]
 
     def get_secret(self):
         secret_name = f"{self.fm_prefix}-ingstn-db-secrets-{self.src_sys_id}"
@@ -105,25 +117,55 @@ class IngestionAttr:
     def drop_data_to_s3(self, data):
         data.repartition(1).write.csv(self.source_path, header=True, mode="overwrite")
 
-    def pull_data_from_db(self):
+    def get_highest_value_from_catalog(self):
+        data_asset_catalog_table = "data_asset_catalogs"
+        data_asset_catalog_table_data = self.conn.retrieve_dict(table=data_asset_catalog_table, cols="last_ext_time",
+                                                                where=("asset_id=%s and last_ext_time is not %s",
+                                                                       [self.asset_id, None]),
+                                                                order=["last_ext_time", "DESC"])
+        if not data_asset_catalog_table_data:
+            return None
+        else:
+            return data_asset_catalog_table_data[0]["last_ext_time"]
+
+    def get_data_from_different_db(self, get_max=None, full=None, inc=None):
         if self.db_type == "postgres":
             self.driver = "org.postgresql.Driver"
             self.url = f"jdbc:postgresql://{self.db_hostname}:{self.db_port}/{self.db_name}"
-            if self.query is None:
+            if get_max is True:
+                self.query = f"select {self.ext_col} from {self.db_schema}.{self.table_name} ORDER BY {self.ext_col} DESC LIMIT 1"
+            if full is True:
                 self.query = f"SELECT * FROM {self.db_schema}.{self.table_name}"
+            if inc is True:
+                self.query = f"select * from {self.db_schema}.{self.table_name} where {self.ext_col} > timestamp '{self.max_value_in_catalog}' and {self.ext_col} <= timestamp '{self.max_value_in_table}'"
+                print(self.query)
         if self.db_type == "mysql":
             self.driver = "com.mysql.jdbc.Driver"
             self.url = f"jdbc:mysql://{self.db_hostname}:{self.db_port}/{self.db_name}"
-            if self.query is None:
+            if get_max is True:
+                self.query = f"select {self.ext_col} from {self.table_name} ORDER BY {self.ext_col} DESC LIMIT 1"
+            if full is True:
                 self.query = f"SELECT * FROM {self.table_name}"
+            if inc is True:
+                self.query = f"select * from {self.table_name} where {self.ext_col} > timestamp {str(self.max_value_in_catalog)} and {self.ext_col} <= timestamp {str(self.max_value_in_table)}"
         if self.db_type == "oracle":
             self.driver = "oracle.jdbc.driver.OracleDriver"
             self.url = f"jdbc:oracle:thin:@{self.db_hostname}:{self.db_port}:{self.db_name}"
-            if self.query is None:
+            if get_max is True:
+                self.query = f"select {self.ext_col} from {self.table_name} ORDER BY {self.ext_col} DESC LIMIT 1"
+            if full is True:
                 self.query = f"SELECT * FROM {self.table_name}"
+            if inc is True:
+                self.query = f"select * from {self.table_name} where {self.ext_col} > timestamp {str(self.max_value_in_catalog)} and {self.ext_col} <= timestamp {str(self.max_value_in_table)}"
         if self.db_type == "sqlserver":
             self.driver = "com.microsoft.sqlserver.jdbc.SQLServerDriver"
-            self.url = "jdbc:sqlserver://localhost:1433;Server=localhost;Database=master;Trusted_Connection=True";
+            self.url = f"jdbc:sqlserver://{self.db_hostname}:{self.db_hostname};Server={self.db_hostname};Database={self.db_name};Trusted_Connection=True"
+            if get_max is True:
+                self.query = f"select {self.ext_col} from {self.table_name} ORDER BY {self.ext_col} DESC LIMIT 1"
+            if full is True:
+                self.query = f"SELECT * FROM {self.table_name}"
+            if inc is True:
+                self.query = f"select * from {self.table_name} where {self.ext_col} > timestamp {str(self.max_value_in_catalog)} and {self.ext_col} <= timestamp {str(self.max_value_in_table)}"
         try:
             spark = sql.SparkSession.builder.getOrCreate()
             df = spark.read.format("jdbc").options(driver=self.driver,
@@ -135,6 +177,21 @@ class IngestionAttr:
             return df
         except Exception as e:
             logger.write(message=str(e))
+
+    def pull_data_from_db(self):
+        if self.ext_method == "incremental":
+            time_df = self.get_data_from_different_db(get_max=True)
+            self.max_value_in_table = time_df.collect()[0][0]
+            print(self.max_value_in_table)
+            time.sleep(5)
+            self.max_value_in_catalog = self.get_highest_value_from_catalog()
+            print(self.max_value_in_catalog)
+            if self.max_value_in_catalog is None:
+                return self.get_data_from_different_db(full=True)
+            else:
+                return self.get_data_from_different_db(inc=True)
+        elif self.ext_method == "full":
+            return self.get_data_from_different_db(full=True)
 
     def copy_file_between_buckets(self):
         if self.trigger_mechanism == "time_driven":
@@ -187,6 +244,7 @@ class IngestionAttr:
             "s3_log_path": f"s3://{self.bucket_name}/{self.asset_id}/logs/{self.exec_id}/",
             "proc_start_ts": datetime.strptime(self.timestamp, "%Y%m%d%H%M%S"),
             "created_ts": created_ts,
+            "last_ext_time": self.max_value_in_table
         }
         self.conn.insert(table="data_asset_catalogs", data=insert_data)
 
@@ -202,7 +260,8 @@ class IngestionAttr:
                 file_str = file_str + output
             data_str = "[{}]".format(file_str.replace("}{", "},{"))
             data_bytes = bytes(data_str, 'utf-8')
-            output_obj = s3.Object(f'{self.fm_prefix}-{self.src_sys_id}-{self.ingestion_region}', f'{self.asset_id}/init/{self.timestamp}/streaming_file.json')
+            output_obj = s3.Object(f'{self.fm_prefix}-{self.src_sys_id}-{self.ingestion_region}',
+                                   f'{self.asset_id}/init/{self.timestamp}/streaming_file.json')
             output_obj.put(Body=data_bytes)
             for obj in bucket.objects.filter(Prefix=f'init/{self.src_sys_id}/{self.asset_id}/'):
                 s3.Object(obj.bucket_name, obj.key).delete()
