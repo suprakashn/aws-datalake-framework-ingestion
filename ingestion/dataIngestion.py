@@ -22,7 +22,6 @@ try:
     config_dict = get_global_config()
     conn = Connector(config_dict["db_secret"], config_dict["db_region"])
     ing_db = IngestionAttr(conn, config_dict, args)
-    ing_db.insert_record_in_catalog_tbl()
     if ing_db.ing_pattern == "database":
         data = ing_db.pull_data_from_db()
         ing_db.drop_data_to_s3(data)
@@ -32,6 +31,7 @@ try:
     if ing_db.ing_pattern == "stream":
         ing_db.merge_and_copy_streaming_file_to_raw()
         ing_db.move_streaming_file_to_processed()
+    ing_db.insert_record_in_catalog_tbl()
     conn.close()
 except Exception as e:
     logger.write(message=str(e))
