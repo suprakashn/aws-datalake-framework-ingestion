@@ -11,7 +11,23 @@ def initializer(**kwargs):
     instance_id = datetime.now().strftime("%Y%m%d%H%M%S")
     exec_id = f"{src_sys_id}_{ast_id}_{instance_id}"
     src_path = f"s3://dl-fmwrk-{src_sys_id}-us-east-2/{ast_id}/init/{instance_id}"
-    job_name_args = "dl-fmwrk-data-standardization"
+    job_name_args = f"dl-fmwrk-data-publish-{env}"
+
+    env = "env_placeholder"
+    ingestion_glue_job = f"dl-fmwrk-data-ingestion-{env}"
+    publish_glue_job = f"dl-fmwrk-data-publish-{env}"
+    dq_glue_job = f"dl-fmwrk-data-quality-checks-{env}"
+    masking_glue_job = f"dl-fmwrk-data-masking-{env}"
+    task_instance.xcom_push(key="ingestion_glue_job", value=ingestion_glue_job)
+    task_instance.xcom_push(key="publish_glue_job", value=publish_glue_job)
+    task_instance.xcom_push(key="dq_glue_job", value=dq_glue_job)
+    task_instance.xcom_push(key="masking_glue_job", value=masking_glue_job)
+
+    code_bucket = "dl-fmwrk-code-us-east-2"
+    ingestion_script_location = f"s3://{code_bucket}/{env}/aws-datalake-framework-ingestion/ingestion/",
+    framework_script_location = f"s3://{code_bucket}/{env}/aws-datalake-framework/src/",
+    task_instance.xcom_push(key="ingestion_script_location", value=ingestion_script_location)
+    task_instance.xcom_push(key="framework_script_location", value=framework_script_location)
 
     task_instance = kwargs['task_instance']
     task_instance.xcom_push(key="src_sys_id", value=src_sys_id)
@@ -45,9 +61,9 @@ t1 = PythonOperator(
 
 t2 = AwsGlueJobOperator(
     task_id = "data_ingestion",
-    job_name = "dl-fmwrk-data-ingestion",
+    job_name = "{{ task_instance.xcom_pull(task_ids='start', key='ingestion_glue_job')}}",
     region_name = "us-east-2",
-    script_location = "s3://dl-fmwrk-code-us-east-2/aws-datalake-framework-ingestion/ingestion/",
+    script_location = "{{ task_instance.xcom_pull(task_ids='start', key='ingestion_script_location')}}",
     num_of_dpus = 1,
     script_args = {
         "--source_id" : "{{ task_instance.xcom_pull(task_ids='start', key='src_sys_id')}}",
@@ -60,9 +76,9 @@ t2 = AwsGlueJobOperator(
 
 t3 = AwsGlueJobOperator(
     task_id = "quality_check",
-    job_name = "dl-fmwrk-data-quality-checks",
+    job_name = "{{ task_instance.xcom_pull(task_ids='start', key='dq_glue_job')}}",
     region_name = "us-east-2",
-    script_location = "s3://dl-fmwrk-code-us-east-2/aws-datalake-framework/src/",
+    script_location = "{{ task_instance.xcom_pull(task_ids='start', key='framework_script_location')}}",
     num_of_dpus = 1,
     script_args = {
         "--source_id" : "{{ task_instance.xcom_pull(task_ids='start', key='src_sys_id')}}",
@@ -75,9 +91,9 @@ t3 = AwsGlueJobOperator(
 
 t4 = AwsGlueJobOperator(
     task_id = "data_masking",
-    job_name = "dl-fmwrk-data-masking",
+    job_name = "{{ task_instance.xcom_pull(task_ids='start', key='masking_glue_job')}}",
     region_name = "us-east-2",
-    script_location = "s3://dl-fmwrk-code-us-east-2/aws-datalake-framework/src/",
+    script_location = "{{ task_instance.xcom_pull(task_ids='start', key='framework_script_location')}}",
     num_of_dpus = 1,
     script_args = {
         "--source_id" : "{{ task_instance.xcom_pull(task_ids='start', key='src_sys_id')}}",
@@ -90,9 +106,9 @@ t4 = AwsGlueJobOperator(
 
 t5 = AwsGlueJobOperator(
     task_id = "data_publish",
-    job_name = "dl-fmwrk-data-publish",
+    job_name = "{{ task_instance.xcom_pull(task_ids='start', key='publish_glue_job')}}",
     region_name = "us-east-2",
-    script_location = "s3://dl-fmwrk-code-us-east-2/aws-datalake-framework/src/",
+    script_location = "{{ task_instance.xcom_pull(task_ids='start', key='framework_script_location')}}",
     num_of_dpus = 1,
     script_args = {
         "--source_id" : "{{ task_instance.xcom_pull(task_ids='start', key='src_sys_id')}}",
