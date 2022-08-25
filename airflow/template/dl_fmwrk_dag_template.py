@@ -3,17 +3,18 @@ from datetime import datetime, timedelta
 from airflow import DAG
 from airflow.operators.dummy import DummyOperator
 from airflow.operators.python_operator import PythonOperator
-from airflow.providers.amazon.aws.operators.glue import AwsGlueJobOperator
+from airflow.providers.amazon.aws.operators.glue import GlueJobOperator
 
 def initializer(**kwargs):
     src_sys_id = "src_sys_id_placeholder"
     ast_id = "ast_id_placeholder"
+    env = "env_placeholder"
     instance_id = datetime.now().strftime("%Y%m%d%H%M%S")
     exec_id = f"{src_sys_id}_{ast_id}_{instance_id}"
     src_path = f"s3://dl-fmwrk-{src_sys_id}-us-east-2/{ast_id}/init/{instance_id}"
     job_name_args = f"dl-fmwrk-data-publish-{env}"
+    task_instance = kwargs['task_instance']
 
-    env = "env_placeholder"
     ingestion_glue_job = f"dl-fmwrk-data-ingestion-{env}"
     publish_glue_job = f"dl-fmwrk-data-publish-{env}"
     dq_glue_job = f"dl-fmwrk-data-quality-checks-{env}"
@@ -24,12 +25,11 @@ def initializer(**kwargs):
     task_instance.xcom_push(key="masking_glue_job", value=masking_glue_job)
 
     code_bucket = "dl-fmwrk-code-us-east-2"
-    ingestion_script_location = f"s3://{code_bucket}/{env}/aws-datalake-framework-ingestion/ingestion/",
-    framework_script_location = f"s3://{code_bucket}/{env}/aws-datalake-framework/src/",
+    ingestion_script_location = f"s3://{code_bucket}/{env}/aws-datalake-framework-ingestion/ingestion/"
+    framework_script_location = f"s3://{code_bucket}/{env}/aws-datalake-framework/src/"
     task_instance.xcom_push(key="ingestion_script_location", value=ingestion_script_location)
     task_instance.xcom_push(key="framework_script_location", value=framework_script_location)
 
-    task_instance = kwargs['task_instance']
     task_instance.xcom_push(key="src_sys_id", value=src_sys_id)
     task_instance.xcom_push(key="ast_id", value=ast_id)
     task_instance.xcom_push(key="exec_id", value=exec_id)
@@ -59,7 +59,7 @@ t1 = PythonOperator(
     dag = dag
 )
 
-t2 = AwsGlueJobOperator(
+t2 = GlueJobOperator(
     task_id = "data_ingestion",
     job_name = "{{ task_instance.xcom_pull(task_ids='start', key='ingestion_glue_job')}}",
     region_name = "us-east-2",
@@ -74,7 +74,7 @@ t2 = AwsGlueJobOperator(
     dag = dag
     )
 
-t3 = AwsGlueJobOperator(
+t3 = GlueJobOperator(
     task_id = "quality_check",
     job_name = "{{ task_instance.xcom_pull(task_ids='start', key='dq_glue_job')}}",
     region_name = "us-east-2",
@@ -89,7 +89,7 @@ t3 = AwsGlueJobOperator(
     dag = dag
     )
 
-t4 = AwsGlueJobOperator(
+t4 = GlueJobOperator(
     task_id = "data_masking",
     job_name = "{{ task_instance.xcom_pull(task_ids='start', key='masking_glue_job')}}",
     region_name = "us-east-2",
@@ -104,7 +104,7 @@ t4 = AwsGlueJobOperator(
     dag = dag
     )
 
-t5 = AwsGlueJobOperator(
+t5 = GlueJobOperator(
     task_id = "data_publish",
     job_name = "{{ task_instance.xcom_pull(task_ids='start', key='publish_glue_job')}}",
     region_name = "us-east-2",
