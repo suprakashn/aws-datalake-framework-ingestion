@@ -4,9 +4,6 @@ Parameters:
   GlueIamRole:
     Type: String
     Default: arn:aws:iam::315119964270:role/dl-fmwrk-glue-role
-  LambdaIamRole:
-    Type: String
-    Default: arn:aws:iam::315119964270:role/service-role/dl-fmwrk-airflow-api-trigger-role-qftdk9ti
   CodeBucketName:
     Type: String
     Default: dl-fmwrk-code-us-east-2
@@ -24,46 +21,6 @@ Parameters:
     Default: "3.0"
 
 Resources:
-  AirflowEventTrigger:
-    Type: AWS::Lambda::Function
-    Properties:
-      FunctionName: !Sub "${DlFmwrkPrefix}-airflow-api-trigger-${Environment}"
-      Code:
-        ZipFile: |
-          import logging
-          import os
-          import json
-
-          import datetime
-          import requests
-
-
-          def lambda_handler(event, context):
-              s3_path = event["Records"][0]["s3"]["object"]["key"]
-              s3_path_list = str(s3_path).split("/")
-              
-              if (len(s3_path_list) == 4 and len(s3_path_list[3]) > 0):
-                  src_sys_id = s3_path_list[1]
-                  asset_id = s3_path_list[2]
-                  DAG_ID = f"{src_sys_id}_{asset_id}_workflow"
-                  print(DAG_ID)
-                  url = f"https://www.dl-fmwrk-airflow-domain.click/api/v1/dags/{DAG_ID}/dagRuns"
-                      
-                  payload = "{}"
-                  headers = {
-                      'content-type': "application/json",
-                      'authorization': "Basic ZGwtZm13cmstYWRtaW4tdXNlcjpkbF9mbXdya19wd2RAMzIx",
-                      'cache-control': "no-cache",
-                      'postman-token': "6a13f23f-eec2-c51f-74d7-c0ebd612545a"
-                      }
-                  
-                  response = requests.request("POST", url, data=payload, headers=headers)
-                  
-                  print(response.text)
-
-      Handler: index.lambda_handler
-      Role: !Ref LambdaIamRole
-      Runtime: python3.7
   IngestionGlueJob:
     Type: AWS::Glue::Job
     Properties:
@@ -91,6 +48,3 @@ Outputs:
   GlueDataIngestion:
     Description: Latest Commit to be updated here
     Value: !Sub Data Ingestion glue job updated from the latest code in s3://${CodeBucketName}/${Environment}/${ProjectPrefix}-ingestion/ingestion/dataIngestion.py
-  LambdaDataIngestion:
-    Description: Latest Commit to be updated here
-    Value: Updated Data Ingestion lambda function
