@@ -27,7 +27,7 @@ Resources:
   AirflowEventTrigger:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "${DlFmwrkPrefix}-airflow-api-${Environment}"
+      FunctionName: !Sub "${DlFmwrkPrefix}-airflow-api-trigger-${Environment}"
       Code:
         ZipFile: |
           import logging
@@ -52,7 +52,7 @@ Resources:
                   payload = "{}"
                   headers = {
                       'content-type': "application/json",
-                      'authorization': "Basic YWRtaW46YWRtaW4=",
+                      'authorization': "Basic ZGwtZm13cmstYWRtaW4tdXNlcjpkbF9mbXdya19wd2RAMzIx",
                       'cache-control': "no-cache",
                       'postman-token': "6a13f23f-eec2-c51f-74d7-c0ebd612545a"
                       }
@@ -60,6 +60,7 @@ Resources:
                   response = requests.request("POST", url, data=payload, headers=headers)
                   
                   print(response.text)
+
       Handler: index.lambda_handler
       Role: !Ref LambdaIamRole
       Runtime: python3.7
@@ -78,7 +79,7 @@ Resources:
         {
           "--extra-py-files":
             !Sub "s3://${CodeBucketName}/${Environment}/${ProjectPrefix}-ingestion/dependencies/utils.zip,\
-            s3://${CodeBucketName}/${ProjectPrefix}-ingestion/dependencies/connector.zip",
+            s3://${CodeBucketName}/${Environment}/${ProjectPrefix}-ingestion/dependencies/connector.zip",
           "--extra-files": !Sub "s3://${CodeBucketName}/${Environment}/${ProjectPrefix}-ingestion/ingestion/config/globalConfig.json",
           "--TempDir": !Sub "s3://${CodeBucketName}/temporary/",
           "--additional-python-modules": "psycopg2-binary",
