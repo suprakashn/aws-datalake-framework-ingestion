@@ -35,3 +35,4 @@ try:
     conn.close()
 except Exception as e:
     logger.write(message=str(e))
+    raise sys.exit()

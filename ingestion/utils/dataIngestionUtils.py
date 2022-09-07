@@ -186,12 +186,17 @@ class IngestionAttr:
             time.sleep(5)
             self.max_value_in_catalog = self.get_highest_value_from_catalog()
             print(self.max_value_in_catalog)
+            if self.max_value_in_catalog == self.max_value_in_table:
+                raise Exception("No new record found!")
             if self.max_value_in_catalog is None:
                 return self.get_data_from_different_db(full=True)
             else:
                 return self.get_data_from_different_db(inc=True)
         elif self.ext_method == "full":
-            return self.get_data_from_different_db(full=True)
+            df = self.get_data_from_different_db(full=True)
+            if df.rdd.isEmpty():
+                raise Exception("No new record found!")
+            return df
 
     def copy_file_between_buckets(self):
         if self.trigger_mechanism == "time_driven":
