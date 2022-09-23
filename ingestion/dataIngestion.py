@@ -20,7 +20,7 @@ def get_global_config():
 args = getResolvedOptions(sys.argv, ["source_path", "source_id", "asset_id", "exec_id"])
 try:
     config_dict = get_global_config()
-    conn = Connector(config_dict["db_secret"], config_dict["db_region"])
+    conn = Connector(config_dict["db_secret"], config_dict["db_region"],schema=config_dict["schema"])
     ing_db = IngestionAttr(conn, config_dict, args)
     if ing_db.ing_pattern == "database":
         data = ing_db.pull_data_from_db()
@@ -31,6 +31,9 @@ try:
     if ing_db.ing_pattern == "stream":
         ing_db.merge_and_copy_streaming_file_to_raw()
         ing_db.move_streaming_file_to_processed()
+    if ing_db.derive_schema_ind:
+        ing_db.delete_asset_if_present()
+        ing_db.derive_schema()
     ing_db.insert_record_in_catalog_tbl()
     conn.close()
 except Exception as e:
