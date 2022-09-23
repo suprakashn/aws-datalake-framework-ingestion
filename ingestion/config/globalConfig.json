@@ -7,5 +7,6 @@
   "project_name": "aws-datalake-framework-ingestion",
   "git_branch": "develop",
   "db_secret": "dl-fmwrk-metadata-dev",
-  "db_region": "us-east-2"
+  "db_region": "us-east-2",
+  "schema": "dev"
 }
