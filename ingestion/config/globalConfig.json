@@ -3,15 +3,10 @@
   "fm_prefix": "dl-fmwrk",
   "primary_region": "us-east-2",
   "secondary_region": "us-east-1",
-  "log_type": "S",
   "fm_tgt_prefix": "dl-fmwrk-tgt",
-  "secret_name": "dl-fmwrk-tokenization-key",
   "project_name": "aws-datalake-framework-ingestion",
-  "git_branch": "master",
-  "lambda_function_name": "dlFmwrkSrcDataInfo",
+  "git_branch": "develop",
   "db_secret": "dl-fmwrk-metadata-dev",
   "db_region": "us-east-2",
-  "workgroup": "dl-fmwrk-us-east-2",
-  "redshift_secret": "dl-fmwrk-redshift-dev",
-  "redshift_region": "us-east-2"
+  "schema": "dev"
 }

@@ -8,9 +8,25 @@ from pyspark import sql
 from connector.pg_connect import *
 from utils.logger import Logger
 
+# Mapper to convert source data types of different file types to UI specific data types
+SOURCE_TO_UI = {
+    "string": "String",
+    "int": "Integer",
+    "tinyint": "Integer",
+    "smallint": "Integer",
+    "bigint": "Long",
+    "long": "Long",
+    "double": "Double",
+    "float": "Double",
+    "decimal": "Double",
+    "boolean": "Boolean",
+    "timestamp": "Datetime"
+}
+
 logger = Logger()
 
 
+# Initializing the ingestion attributes
 class IngestionAttr:
     def __init__(self, conn, config, args):
         try:
@@ -21,7 +37,7 @@ class IngestionAttr:
             self.asset_id = args["asset_id"]
             self.exec_id = args["exec_id"]
             self.source_path = args["source_path"]
-            src_sys_attr = self.get_src_sys_attributes(conn)
+            src_sys_attr = self.get_src_sys_attributes()
             self.ing_pattern = src_sys_attr["ingstn_pattern"]
             self.db_type = src_sys_attr["db_type"]
             self.db_hostname = src_sys_attr["db_hostname"]
@@ -30,36 +46,48 @@ class IngestionAttr:
             self.db_port = src_sys_attr["db_port"]
             self.db_name = src_sys_attr["db_name"]
             self.bucket_name = src_sys_attr["ingstn_src_bckt_nm"]
-            asset_attr = self.get_data_asset_attributes(conn)
-            self.table_name = asset_attr["src_table_name"]
-            self.query = asset_attr["src_sql_query"]
-            self.trigger_mechanism = asset_attr["trigger_mechanism"]
-            self.ext_method = asset_attr["ext_method"]
-            self.ext_col = asset_attr["ext_col"]
+            asset_ing_attr = self.get_data_asset_ing_attributes()
+            self.table_name = asset_ing_attr["src_table_name"]
+            self.trigger_mechanism = asset_ing_attr["trigger_mechanism"]
+            self.ext_method = asset_ing_attr["ext_method"]
+            self.ext_col = asset_ing_attr["ext_col"]
             self.password = self.get_secret() if self.ing_pattern == "database" else None
             self.timestamp = self.source_path.split("/")[5]
             self.driver = None
             self.url = None
             self.max_value_in_catalog = None
             self.max_value_in_table = None
+            self.spark=sql.SparkSession.builder.getOrCreate()
+            self.derive_schema_ind = self.get_data_asset()["derive_schema"]
+            self.file_type = self.get_data_asset()["file_type"] if self.derive_schema_ind else None
         except Exception as e:
             logger.write(message=str(e))
 
-    def get_src_sys_attributes(self, conn):
-
+    # Get source system ing attributes from metadata DB
+    def get_src_sys_attributes(self):
         src_sys_table = "source_system_ingstn_atrbts"
-        src_sys_table_data = conn.retrieve_dict(table=src_sys_table, cols="all",
+        src_sys_table_data = self.conn.retrieve_dict(table=src_sys_table, cols="all",
                                                 where=("src_sys_id = %s", [self.src_sys_id]))
         print(src_sys_table_data[0])
         return src_sys_table_data[0]
 
-    def get_data_asset_attributes(self, conn):
+    # Get data asset ing attributes from metadata DB
+    def get_data_asset_ing_attributes(self):
         data_asset_table = "data_asset_ingstn_atrbts"
-        data_asset_table_data = conn.retrieve_dict(table=data_asset_table, cols="all",
+        data_asset_table_data = self.conn.retrieve_dict(table=data_asset_table, cols="all",
                                                    where=("asset_id=%s", [self.asset_id]))
         print(data_asset_table_data[0])
         return data_asset_table_data[0]
 
+    # Get data asset attributes from metadata DB
+    def get_data_asset(self):
+        data_asset_table = "data_asset"
+        data_asset_table_data = self.conn.retrieve_dict(table=data_asset_table, cols="all",
+                                                   where=("asset_id=%s", [self.asset_id]))
+        print(data_asset_table_data[0])
+        return data_asset_table_data[0]
+
+    # Get data asset catalog attributes from metadata DB
     def get_data_catalog_attributes(self):
         data_asset_catalog_table = "data_asset_catalogs"
         data_asset_catalog_table_data = self.conn.retrieve_dict(table=data_asset_catalog_table, cols="all",
@@ -67,6 +95,7 @@ class IngestionAttr:
         print(data_asset_catalog_table_data[0])
         return data_asset_catalog_table_data[0]
 
+    # Get secret from secrets manager
     def get_secret(self):
         secret_name = f"{self.fm_prefix}-ingstn-db-secrets-{self.src_sys_id}"
         region_name = self.ingestion_region
@@ -114,9 +143,11 @@ class IngestionAttr:
                 decoded_binary_secret = base64.b64decode(get_secret_value_response['SecretBinary'])
                 return decoded_binary_secret
 
+    # Drop the extracted data from DB to S3 bucket in parquet format
     def drop_data_to_s3(self, data):
-        data.repartition(1).write.csv(self.source_path, header=True, mode="overwrite")
+        data.repartition(1).write.parquet(self.source_path, mode="overwrite")
 
+    # Getting the highest values from data asset catalogs for incremental load from DB
     def get_highest_value_from_catalog(self):
         data_asset_catalog_table = "data_asset_catalogs"
         data_asset_catalog_table_data = self.conn.retrieve_dict(table=data_asset_catalog_table, cols="last_ext_time",
@@ -128,6 +159,7 @@ class IngestionAttr:
         else:
             return data_asset_catalog_table_data[0]["last_ext_time"]
 
+    # Extracting data from different DB
     def get_data_from_different_db(self, get_max=None, full=None, inc=None):
         if self.db_type == "postgres":
             self.driver = "org.postgresql.Driver"
@@ -138,7 +170,6 @@ class IngestionAttr:
                 self.query = f"SELECT * FROM {self.db_schema}.{self.table_name}"
             if inc is True:
                 self.query = f"select * from {self.db_schema}.{self.table_name} where {self.ext_col} > timestamp '{self.max_value_in_catalog}' and {self.ext_col} <= timestamp '{self.max_value_in_table}'"
-                print(self.query)
         if self.db_type == "mysql":
             self.driver = "com.mysql.jdbc.Driver"
             self.url = f"jdbc:mysql://{self.db_hostname}:{self.db_port}/{self.db_name}"
@@ -178,6 +209,7 @@ class IngestionAttr:
         except Exception as e:
             logger.write(message=str(e))
 
+    # Executing inc or full extraction based on ext_method
     def pull_data_from_db(self):
         if self.ext_method == "incremental":
             time_df = self.get_data_from_different_db(get_max=True)
@@ -186,13 +218,19 @@ class IngestionAttr:
             time.sleep(5)
             self.max_value_in_catalog = self.get_highest_value_from_catalog()
             print(self.max_value_in_catalog)
+            if self.max_value_in_catalog == self.max_value_in_table:
+                raise Exception("No new record found!")
             if self.max_value_in_catalog is None:
                 return self.get_data_from_different_db(full=True)
             else:
                 return self.get_data_from_different_db(inc=True)
         elif self.ext_method == "full":
-            return self.get_data_from_different_db(full=True)
+            df = self.get_data_from_different_db(full=True)
+            if df.rdd.isEmpty():
+                raise Exception("No new record found!")
+            return df
 
+    # Copying file from time/event driven bucket to the respective source bucket
     def copy_file_between_buckets(self):
         if self.trigger_mechanism == "time_driven":
             ing_bucket = f"{self.fm_prefix}-time-drvn-inbound-{self.ingestion_region}"
@@ -212,6 +250,7 @@ class IngestionAttr:
         except Exception as e:
             logger.write(message=str(e))
 
+    # Moving file from init->processed folder in time/event driven bucket
     def move_file_within_bucket(self):
         if self.trigger_mechanism == "time_driven":
             ing_bucket = f"{self.fm_prefix}-time-drvn-inbound-{self.ingestion_region}"
@@ -231,6 +270,7 @@ class IngestionAttr:
         except Exception as e:
             logger.write(message=str(e))
 
+    # Insert the record in data asset catalogs for monitoring
     def insert_record_in_catalog_tbl(self):
         created_ts = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         insert_data = {
@@ -248,6 +288,7 @@ class IngestionAttr:
         }
         self.conn.insert(table="data_asset_catalogs", data=insert_data)
 
+    # Merging and formatting the json to consistent format and copying it from the time driven bucket -> source bucket
     def merge_and_copy_streaming_file_to_raw(self):
         s3 = boto3.resource('s3')
         ing_bucket = f'{self.fm_prefix}-time-drvn-inbound-{self.ingestion_region}'
@@ -268,6 +309,7 @@ class IngestionAttr:
         except Exception as e:
             logger.write(message=str(e))
 
+    # Moving file from init->processed folder in time driven bucket
     def move_streaming_file_to_processed(self):
         s3 = boto3.resource('s3')
         ing_source_bucket = f'{self.fm_prefix}-{self.src_sys_id}-{self.ingestion_region}'
@@ -284,3 +326,37 @@ class IngestionAttr:
                 dest_bucket_obj.copy(copy_source, f"processed/{self.src_sys_id}/{self.asset_id}/{file_name}")
         except Exception as e:
             logger.write(message=str(e))
+
+    # Use the data type mapper to map the source data types to UI specific data types
+    def convert_dt_and_insert(self, df):
+        final_list = []
+        col_id = 1
+        for col in df.dtypes:
+            json_record = dict()
+            json_record["col_id"] = col_id
+            json_record["asset_id"] = self.asset_id
+            json_record["col_nm"] = col[0]
+            json_record["data_type"] = SOURCE_TO_UI[col[1]]
+            final_list.append(json_record)
+            col_id = col_id + 1
+        self.conn.insert_many("data_asset_attributes", final_list, returning=True)
+
+    # Derive schema of the source file based on the file type
+    def derive_schema(self):
+        if self.file_type == "csv":
+            df = self.spark.read.csv(f"s3://{self.bucket_name}/{self.asset_id}/init/{self.timestamp}/", header=True,
+                                     inferSchema=True)
+            self.convert_dt_and_insert(df)
+        if self.file_type == "parquet":
+            df = self.spark.read.parquet(f"s3://{self.bucket_name}/{self.asset_id}/init/{self.timestamp}/")
+            self.convert_dt_and_insert(df)
+        if self.file_type == "json":
+            df = self.spark.read.json(f"s3://{self.bucket_name}/{self.asset_id}/init/{self.timestamp}/")
+            self.convert_dt_and_insert(df)
+        if self.file_type == "orc":
+            df = self.spark.read.orc(f"s3://{self.bucket_name}/{self.asset_id}/init/{self.timestamp}/")
+            self.convert_dt_and_insert(df)
+
+    # Delete data asset attributes already present in the metadata DB for that specific asset
+    def delete_asset_if_present(self):
+        self.conn.delete(table="data_asset_attributes", where=("asset_id=%s", [self.asset_id]))

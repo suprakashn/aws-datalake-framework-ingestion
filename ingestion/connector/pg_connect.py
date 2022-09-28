@@ -1,5 +1,7 @@
 import json
 from collections import namedtuple
+from time import time, sleep
+from typing import Callable
 
 import boto3
 from botocore.exceptions import ClientError
@@ -7,9 +9,13 @@ import psycopg2
 import psycopg2.extras as pg_extra
 
 
+LIMIT_RETRIES = 5
+
+
 class Connector:
     def __init__(self, secret=None, region=None,
-                 creds=None, autocommit=False):
+                 creds=None, autocommit=False,
+                 schema=None, reconnect=True):
         """
         Base constructor of the Connector class
         :param secret: AWS secret name that stores the credentials to connect
@@ -31,12 +37,57 @@ class Connector:
         user = self.credentials['username']
         pwd = self.credentials['password']
         db = self.credentials['dbname']
-        self.conn = psycopg2.connect(
-            host=host, port=port,
-            database=db, user=user, password=pwd
-        )
+        self.reconnect = reconnect
+        self.schema = schema
+        # if schema:
+        #     self.conn = psycopg2.connect(
+        #         host=host, port=port, database=db,
+        #         user=user, password=pwd, options=f"-c search_path={schema}",
+        #         connect_timeout=8
+        #     )
+        # else:
+        #     self.conn = psycopg2.connect(
+        #         host=host, port=port, database=db,
+        #         user=user, password=pwd,
+        #         connect_timeout=8
+        #     )
+        self.conn = self.connect()
         self.conn.autocommit = autocommit
         self.cursor = self.conn.cursor()
+
+    def connect(self, retry_counter=0):
+        host = self.credentials['host']
+        port = self.credentials['port']
+        user = self.credentials['username']
+        pwd = self.credentials['password']
+        db = self.credentials['dbname']
+        try:
+            if self.schema:
+                self.conn = psycopg2.connect(
+                    host=host, port=port, database=db,
+                    user=user, password=pwd, options=f"-c search_path={self.schema}"
+                )
+            else:
+                self.conn = psycopg2.connect(
+                    host=host, port=port, database=db,
+                    user=user, password=pwd
+                )
+        except psycopg2.OperationalError as error:
+            if not self.reconnect or retry_counter >= LIMIT_RETRIES:
+                raise error
+            else:
+                retry_counter += 1
+                print("got error {}. reconnecting {}".format(str(error).strip(), retry_counter))
+                sleep(5)
+                self.connect(retry_counter)
+        except (Exception, psycopg2.Error) as error:
+            raise error
+        return self.conn
+
+    def connected(self):
+        if self.conn.closed == 0:
+            return "Connection established"
+        return "Unable to establish connection"
 
     def get_credentials(self):
         """
