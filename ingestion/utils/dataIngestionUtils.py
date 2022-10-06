@@ -215,7 +215,6 @@ class IngestionAttr:
             time_df = self.get_data_from_different_db(get_max=True)
             self.max_value_in_table = time_df.collect()[0][0]
             print(self.max_value_in_table)
-            time.sleep(5)
             self.max_value_in_catalog = self.get_highest_value_from_catalog()
             print(self.max_value_in_catalog)
             if self.max_value_in_catalog == self.max_value_in_table:
@@ -337,6 +336,8 @@ class IngestionAttr:
             json_record["asset_id"] = self.asset_id
             json_record["col_nm"] = col[0]
             json_record["data_type"] = SOURCE_TO_UI[col[1]]
+            json_record["tgt_col_nm"] = col[0]
+            json_record["tgt_data_type"] = SOURCE_TO_UI[col[1]]
             final_list.append(json_record)
             col_id = col_id + 1
         self.conn.insert_many("data_asset_attributes", final_list, returning=True)
